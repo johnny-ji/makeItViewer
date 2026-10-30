@@ -1,0 +1,19 @@
+# ===== Electron (Windows) =====
+electron/node_modules/
+electron/release/
+electron/release-rebuild/
+electron/tools/nsis-3.0.4.1/
+
+# ===== macOS =====
+macos-viewer/dist/
+macos-viewer/build/
+.DS_Store
+
+# ===== 系统 / 编辑器 =====
+Thumbs.db
+Desktop.ini
+*.log
+
+
+# 插件 skills
+.superpowers/

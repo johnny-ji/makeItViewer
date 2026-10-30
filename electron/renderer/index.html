@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Markdown & Mermaid Viewer</title>
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/mermaid.min.js"></script>
+  <script src="find-request-tracker.js"></script>
+  <style>
+    :root {
+      --bg-page: #f8fafc;
+      --bg-card: #ffffff;
+      --border-color: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-page: #0f172a;
+        --bg-card: #1e293b;
+        --border-color: #334155;
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg-page);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    .top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 24px;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-color);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    @media (prefers-color-scheme: dark) {
+      .top-bar { background: rgba(30, 41, 59, 0.85); }
+    }
+    .file-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .live-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+      font-weight: 500;
+    }
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+    .bar-actions { display: flex; align-items: center; gap: 8px; }
+    .bar-btn {
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-card);
+      color: var(--text-main);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+    .bar-btn:hover { background: var(--border-color); }
+    .bar-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .find-bar { position: sticky; top: 53px; z-index: 99; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 24px; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border-color); box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+    .find-bar[hidden] { display: none; }
+    .find-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .find-input { width: min(420px, 52vw); padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-card); color: var(--text-main); font: inherit; font-size: 13px; outline: none; }
+    .find-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16); }
+    .find-status { min-width: 72px; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    @media (prefers-color-scheme: dark) { .find-bar { background: rgba(30, 41, 59, 0.92); } }
+    .article-container {
+      max-width: 1240px;
+      margin: 24px auto 100px;
+      padding: 40px 48px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: var(--card-shadow);
+      transition: max-width 0.25s ease;
+    }
+    .article-container.full-width { max-width: 98%; padding: 40px 24px; }
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 520px;
+      border: 2px dashed #94a3b8;
+      border-radius: 16px;
+      padding: 60px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .empty-state:hover, .empty-state.dragover { border-color: var(--primary); background: rgba(59, 130, 246, 0.05); }
+    .empty-icon { font-size: 56px; margin-bottom: 16px; }
+    .empty-title { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+    .empty-desc { color: var(--text-muted); font-size: 14px; max-width: 420px; line-height: 1.6; }
+    .md-content { line-height: 1.75; font-size: 15px; }
+    .md-content h1, .md-content h2, .md-content h3, .md-content h4 { color: var(--text-main); font-weight: 600; line-height: 1.35; margin-top: 1.6em; margin-bottom: 0.6em; }
+    .md-content h1 { font-size: 28px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; }
+    .md-content h2 { font-size: 22px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+    .md-content h3 { font-size: 18px; }
+    .md-content p { margin: 0.8em 0; }
+    .md-content code { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 88%; padding: 2px 6px; background: rgba(100, 116, 139, 0.12); border-radius: 4px; }
+    .md-content pre { background: #1e293b; color: #f8fafc; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    .md-content pre code { background: transparent; padding: 0; color: inherit; }
+    .md-content table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+    .md-content th, .md-content td { border: 1px solid var(--border-color); padding: 10px 14px; text-align: left; }
+    .md-content th { background: rgba(100, 116, 139, 0.08); font-weight: 600; }
+    .md-content blockquote { margin: 16px 0; padding: 8px 18px; border-left: 4px solid var(--primary); background: rgba(59, 130, 246, 0.06); border-radius: 0 8px 8px 0; color: var(--text-main); }
+    .mermaid-card { position: relative; margin: 28px 0; background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); overflow: hidden; }
+    @media (prefers-color-scheme: dark) { .mermaid-card { background: #182234; } }
+    .mermaid-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: rgba(100, 116, 139, 0.06); border-bottom: 1px solid var(--border-color); font-size: 12px; color: var(--text-muted); }
+    .mermaid-card-tools { display: flex; align-items: center; gap: 6px; }
+    .mermaid-tool-btn { padding: 3px 8px; font-size: 11px; font-weight: 500; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-card); color: var(--text-main); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.1s; }
+    .mermaid-tool-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .mermaid-stage { position: relative; width: 100%; min-height: 420px; padding: 36px 24px; overflow: auto; display: flex; align-items: center; justify-content: center; background: #ffffff; }
+    @media (prefers-color-scheme: dark) { .mermaid-stage { background: #ffffff; } }
+    .mermaid-viewport { display: inline-block; transform-origin: center center; transition: transform 0.06s ease-out; cursor: grab; user-select: none; text-align: center; }
+    .mermaid-viewport.grabbing { cursor: grabbing; }
+    .mermaid-viewport svg { display: block; height: auto; max-width: none !important; min-width: 1380px; margin: 0 auto; }
+    /* Avoid WebView2's unreliable HTML-in-SVG line metrics for Chinese labels. */
+    .mermaid-viewport svg text,
+    .mermaid-viewport svg tspan,
+    .lightbox-viewport svg text,
+    .lightbox-viewport svg tspan {
+      font-family: "Microsoft YaHei", "Segoe UI", sans-serif !important;
+    }
+    .lightbox-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(16px); display: none; flex-direction: column; opacity: 0; transition: opacity 0.2s ease; }
+    .lightbox-modal.active { display: flex; opacity: 1; }
+    .lightbox-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; background: rgba(30, 41, 59, 0.85); border-bottom: 1px solid rgba(255, 255, 255, 0.12); z-index: 10001; user-select: none; }
+    .lightbox-info { display: flex; align-items: center; gap: 10px; }
+    .lightbox-title { color: #f8fafc; font-size: 14px; font-weight: 600; }
+    .lightbox-hint { color: #94a3b8; font-size: 12px; }
+    .lightbox-btns { display: flex; align-items: center; gap: 8px; }
+    .lightbox-btn { padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.1); color: #f8fafc; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s ease; }
+    .lightbox-btn:hover { background: rgba(255, 255, 255, 0.22); border-color: rgba(255, 255, 255, 0.35); }
+    .lightbox-btn.close-btn { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5; }
+    .lightbox-btn.close-btn:hover { background: rgba(239, 68, 68, 0.45); color: #ffffff; }
+    .lightbox-stage { flex: 1; width: 100%; height: calc(100vh - 52px); position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: grab; user-select: none; }
+    .lightbox-stage.grabbing { cursor: grabbing; }
+    .lightbox-viewport { display: inline-block; transform-origin: center center; transition: transform 0.05s ease-out; user-select: none; background: #ffffff; padding: 24px; border-radius: 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5); }
+    .lightbox-viewport svg { display: block; margin: 0 auto; max-width: none !important; }
+    .toast-notification { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(80px); background: rgba(15, 23, 42, 0.95); color: #ffffff; padding: 10px 22px; border-radius: 30px; font-size: 13px; font-weight: 500; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.15); backdrop-filter: blur(16px); z-index: 100000; opacity: 0; pointer-events: none; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease; }
+    .toast-notification.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <div class="file-info">
+      <span>📑</span>
+      <span id="displayFileName">No file opened</span>
+      <span class="live-tag" id="liveTag" style="display: none;">
+        <span class="live-dot"></span>
+        <span>Live monitoring</span>
+      </span>
+    </div>
+    <div class="bar-actions">
+      <button class="bar-btn" onclick="openFindBar()">🔎 Find (Ctrl+F)</button>
+      <button class="bar-btn" id="fullWidthBtn" onclick="toggleFullWidth()">↔️ Panorama mode</button>
+      <button class="bar-btn" id="openFileBtn" onclick="openNativeFileDialog()">📂 Open File (Ctrl+O)</button>
+      <button class="bar-btn" onclick="exportFullPagePdf()">🖨️ Print / PDF</button>
+    </div>
+  </div>
+  <div class="find-bar" id="findBar" hidden>
+    <label class="find-label" for="findInput">Find</label>
+    <input class="find-input" id="findInput" type="search" placeholder="Search this document" autocomplete="off" aria-describedby="findStatus">
+    <button class="bar-btn" id="findPreviousBtn" type="button" aria-label="Previous match">↑ Previous</button>
+    <button class="bar-btn" id="findNextBtn" type="button" aria-label="Next match">↓ Next</button>
+    <span class="find-status" id="findStatus" aria-live="polite"></span>
+    <button class="bar-btn" id="findCloseBtn" type="button" aria-label="Close find">✕ Close</button>
+  </div>
+  <div class="article-container" id="articleContainer">
+    <div id="emptyView" class="empty-state" onclick="openNativeFileDialog()">
+      <div class="empty-icon">🗺️</div>
+      <h2 class="empty-title">Drag &amp; drop a Markdown file here</h2>
+      <p class="empty-desc">Supports the full GitHub Flavored Markdown spec and panoramic Mermaid flowcharts/state diagrams, with free mouse pan &amp; zoom, fit-to-screen, and one-click high-res copy/save.</p>
+      <button class="bar-btn active" id="chooseFileBtn" style="margin-top: 16px; padding: 8px 20px; font-size: 14px;">Choose a local .md file</button>
+    </div>
+    <div id="markdownBody" class="md-content" style="display: none;"></div>
+  </div>
+  <div class="lightbox-modal" id="lightboxModal">
+    <div class="lightbox-toolbar">
+      <div class="lightbox-info">
+        <span style="font-size: 16px;">🗖</span>
+        <span class="lightbox-title">Panoramic diagram fullscreen</span>
+        <span class="lightbox-hint">(scroll to zoom &middot; drag to pan &middot; click the background or press Esc to exit)</span>
+      </div>
+      <div class="lightbox-btns">
+        <button class="lightbox-btn" onclick="zoomLightbox(1.25)">🔍 Zoom in</button>
+        <button class="lightbox-btn" onclick="zoomLightbox(0.8)">🔍 Zoom out</button>
+        <button class="lightbox-btn" onclick="fitLightbox()">↔️ Fit to screen</button>
+        <button class="lightbox-btn" onclick="resetLightboxZoom()">1:1 Actual size</button>
+        <button class="lightbox-btn" onclick="exportCurrentLightboxPng('copy')">📋 Copy image</button>
+        <button class="lightbox-btn" onclick="exportCurrentLightboxPng('save')">💾 Export PNG</button>
+        <button class="lightbox-btn" onclick="exportCurrentLightboxSvg()">🖼️ Export SVG</button>
+        <button class="lightbox-btn close-btn" onclick="closeLightbox()">✕ Close (Esc)</button>
+      </div>
+    </div>
+    <div class="lightbox-stage" id="lightboxStage">
+      <div class="lightbox-viewport" id="lightboxViewport"></div>
+    </div>
+  </div>
+  <div id="toastNotification" class="toast-notification"></div>
+  <script>
+    mermaid.initialize({ startOnLoad: false, theme: 'base', themeVariables: { primaryColor: '#ffffff', primaryTextColor: '#0f172a', primaryBorderColor: '#1e293b', lineColor: '#475569', secondaryColor: '#ffffff', tertiaryColor: '#ffffff', edgeLabelBackground: '#ffffff', labelBackgroundColor: '#ffffff', fontFamily: '"Microsoft YaHei", "Segoe UI", sans-serif', fontSize: '13px' }, state: { defaultRenderer: 'dagre-wrapper', padding: 24, nodeSpacing: 60, rankSpacing: 70 }, flowchart: { curve: 'basis', htmlLabels: false, useMaxWidth: false } });
+    let currentMarkdown = ""; let isFullWidth = false;
+    const customRenderer = new marked.Renderer();
+    const originalCodeRenderer = customRenderer.code.bind(customRenderer);
+    customRenderer.code = function(tokenOrCode, legacyLang) {
+      const code = typeof tokenOrCode === 'object' ? tokenOrCode.text : tokenOrCode;
+      const lang = typeof tokenOrCode === 'object' ? tokenOrCode.lang : legacyLang;
+      if (lang === 'mermaid') {
+        const uid = 'm_' + Math.random().toString(36).substr(2, 9);
+        return `<div class="mermaid-target" id="target-${uid}" data-code="${encodeURIComponent(code || '')}"></div>`;
+      }
+      return originalCodeRenderer(tokenOrCode, legacyLang);
+    };
+    marked.setOptions({ renderer: customRenderer, gfm: true, breaks: true });
+    window.updateMarkdown = async function(content, filename) {
+      currentMarkdown = content;
+      if (filename) {
+        document.getElementById('displayFileName').innerText = filename;
+        document.title = filename + ' - Markdown Viewer';
+        document.getElementById('liveTag').style.display = 'inline-flex';
+      }
+      const emptyView = document.getElementById('emptyView');
+      const mdBody = document.getElementById('markdownBody');
+      emptyView.style.display = 'none';
+      mdBody.style.display = 'block';
+      const preservedScrollY = window.scrollY;
+      mdBody.innerHTML = marked.parse(content || '');
+      const targets = document.querySelectorAll('.mermaid-target');
+      for (const targetEl of targets) {
+        const rawCode = decodeURIComponent(targetEl.dataset.code || '');
+        const uid = targetEl.id.replace('target-', '');
+        try {
+          const { svg } = await mermaid.render('svg-' + uid, rawCode);
+          targetEl.innerHTML = `
+            <div class="mermaid-card" id="card-${uid}">
+              <div class="mermaid-header">
+                <span>📊 State flow vector diagram (scroll to zoom / drag to pan)</span>
+                <div class="mermaid-card-tools">
+                  <button class="mermaid-tool-btn" onclick="zoomCard('${uid}', 1.25)">🔍 Zoom in</button>
+                  <button class="mermaid-tool-btn" onclick="zoomCard('${uid}', 0.8)">Zoom out</button>
+                  <button class="mermaid-tool-btn" onclick="resetCard('${uid}')">↺ Reset</button>
+                  <button class="mermaid-tool-btn" onclick="openLightbox('${uid}')">🗖 Fullscreen</button>
+                  <button class="mermaid-tool-btn" onclick="exportPng('${uid}', 'copy')">📋 Copy image</button>
+                  <button class="mermaid-tool-btn" onclick="exportPng('${uid}', 'save')">💾 Export PNG</button>
+                  <button class="mermaid-tool-btn" onclick="exportSvg('${uid}')">🖼️ Export SVG</button>
+                </div>
+              </div>
+              <div class="mermaid-stage" id="stage-${uid}">
+                <div class="mermaid-viewport" id="vp-${uid}">${svg}</div>
+              </div>
+            </div>`;
+        } catch (err) {
+          console.error('Mermaid render error for ' + uid, err);
+          targetEl.innerHTML = `<div class="mermaid-card" style="padding: 20px; border-left: 4px solid #ef4444;"><h4 style="color: #ef4444; margin: 0 0 8px;">⚠️ Diagram syntax error</h4><pre style="background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 6px;">${err.message || err}</pre><pre style="background: #f1f5f9; color: #334155; padding: 10px; border-radius: 6px;">${rawCode}</pre></div>`;
+        }
+      }
+      bindPanZoomHandlers();
+      restoreFindAfterRender();
+      window.scrollTo(0, preservedScrollY);
+    };
+    const transformMap = {};
+    function zoomCard(id, factor) {
+      if (!transformMap[id]) transformMap[id] = { scale: 1, x: 0, y: 0 };
+      transformMap[id].scale *= factor;
+      applyTransform(id);
+    }
+    function resetCard(id) { transformMap[id] = { scale: 1, x: 0, y: 0 }; applyTransform(id); }
+    function applyTransform(id) {
+      const vp = document.getElementById('vp-' + id);
+      if (vp && transformMap[id]) { vp.style.transform = `translate(${transformMap[id].x}px, ${transformMap[id].y}px) scale(${transformMap[id].scale})`; }
+    }
+    function bindPanZoomHandlers() {
+      document.querySelectorAll('.mermaid-stage').forEach(stage => {
+        const vp = stage.querySelector('.mermaid-viewport');
+        if (!vp) return;
+        const id = vp.id.replace('vp-', '');
+        if (!transformMap[id]) transformMap[id] = { scale: 1, x: 0, y: 0 };
+        stage.onwheel = (e) => { e.preventDefault(); zoomCard(id, e.deltaY < 0 ? 1.12 : 0.88); };
+        let isDragging = false, startX, startY;
+        vp.onmousedown = (e) => { if (e.target.tagName.toLowerCase() === 'button') return; isDragging = true; vp.classList.add('grabbing'); startX = e.clientX - transformMap[id].x; startY = e.clientY - transformMap[id].y; };
+        window.addEventListener('mousemove', (e) => { if (!isDragging) return; transformMap[id].x = e.clientX - startX; transformMap[id].y = e.clientY - startY; applyTransform(id); });
+        window.addEventListener('mouseup', () => { if (isDragging) { isDragging = false; vp.classList.remove('grabbing'); } });
+      });
+    }
+    function toggleFullWidth() {
+      isFullWidth = !isFullWidth;
+      const c = document.getElementById('articleContainer');
+      const btn = document.getElementById('fullWidthBtn');
+      if (isFullWidth) { c.classList.add('full-width'); btn.classList.add('active'); btn.innerText = 'Standard width'; }
+      else { c.classList.remove('full-width'); btn.classList.remove('active'); btn.innerText = '↔️ Panorama mode'; }
+    }
+    const STANDALONE_SVG_STYLE = 'foreignObject, foreignObject div, text { overflow: visible !important; } .node rect { fill: #ffffff !important; stroke: #1e293b !important; stroke-width: 1.5px !important; rx: 6px !important; ry: 6px !important; } .node .label { font-weight: 600 !important; font-size: 13px !important; fill: #0f172a !important; color: #0f172a !important; line-height: 1.4 !important; white-space: nowrap !important; overflow: visible !important; } .node circle.state-start, circle.state-start { fill: #0f172a !important; stroke: #0f172a !important; } .edgePath path { stroke: #475569 !important; stroke-width: 1.2px !important; } .edgePath marker path { fill: #475569 !important; stroke: #475569 !important; } .edgeLabel, .edgeLabel foreignObject { overflow: visible !important; } .edgeLabel rect, .edgeLabel .label-container { fill: #ffffff !important; stroke: #cbd5e1 !important; stroke-width: 1px !important; rx: 4px !important; ry: 4px !important; } .edgeLabel span, .edgeLabel p { color: #1e293b !important; font-size: 11px !important; font-weight: 500 !important; line-height: 1.4 !important; background: #ffffff !important; box-shadow: 0 0 0 2px #ffffff !important; border-radius: 4px !important; display: inline-block !important; overflow: visible !important; white-space: nowrap !important; }';
+    function exportSvg(id) {
+      const targetVp = document.getElementById('vp-' + id) || document.getElementById('lightboxViewport');
+      const svg = targetVp ? targetVp.querySelector('svg') : null;
+      if (!svg) return;
+      const clonedSvg = svg.cloneNode(true);
+      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const styleEl = document.createElement('style');
+      styleEl.textContent = STANDALONE_SVG_STYLE;
+      clonedSvg.prepend(styleEl);
+      const svgXml = new XMLSerializer().serializeToString(clonedSvg);
+      const docName = (document.getElementById('displayFileName')?.innerText || 'flowchart').replace(/\.md$/i, '');
+      const filename = `${docName}_${id}.svg`;
+      window.viewer.saveSvg({ content: svgXml, filename }).then(saved => showToast(saved ? '✅ SVG saved' : 'Cancelled'));
+    }
+    function exportPng(id, action = 'save') {
+      const targetVp = document.getElementById('vp-' + id) || document.getElementById('lightboxViewport');
+      const svg = targetVp ? targetVp.querySelector('svg') : null;
+      if (!svg) return;
+      const clonedSvg = svg.cloneNode(true);
+      clonedSvg.style.transform = '';
+      clonedSvg.style.margin = '0';
+      const viewBox = svg.viewBox && svg.viewBox.baseVal;
+      const bBox = svg.getBoundingClientRect();
+      let width = (viewBox && viewBox.width > 0) ? viewBox.width : (bBox.width || 1380);
+      let height = (viewBox && viewBox.height > 0) ? viewBox.height : (bBox.height || 800);
+      if (width < 800) width = 1380;
+      if (height < 400) height = 800;
+      clonedSvg.setAttribute('width', width);
+      clonedSvg.setAttribute('height', height);
+      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const styleEl = document.createElement('style');
+      styleEl.textContent = STANDALONE_SVG_STYLE;
+      clonedSvg.prepend(styleEl);
+      const svgXml = new XMLSerializer().serializeToString(clonedSvg);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const scale = 2;
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const img = new Image();
+      img.onload = function() {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const pngBase64 = canvas.toDataURL('image/png');
+        const docName = (document.getElementById('displayFileName')?.innerText || 'flowchart').replace(/\.md$/i, '');
+        const filename = `${docName}_${id}.png`;
+        const operation = action === 'copy' ? window.viewer.copyPng({ base64: pngBase64 }) : window.viewer.savePng({ base64: pngBase64, filename });
+        operation.then(saved => showToast(saved ? '✅ PNG complete' : 'Cancelled'));
+      };
+      img.onerror = function(err) { console.error('Canvas render error:', err); showToast('⚠️ Failed to generate image'); };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgXml);
+    }
+    let currentLightboxId = null, lightboxTransform = { scale: 1, x: 0, y: 0, fitScale: 1 }, isLightboxDragging = false, lightboxStartX = 0, lightboxStartY = 0;
+    function openLightbox(id) {
+      currentLightboxId = id;
+      const sourceVp = document.getElementById('vp-' + id);
+      const sourceSvg = sourceVp ? sourceVp.querySelector('svg') : null;
+      if (!sourceSvg) return;
+      const modal = document.getElementById('lightboxModal');
+      const stage = document.getElementById('lightboxStage');
+      const viewport = document.getElementById('lightboxViewport');
+      const clonedSvg = sourceSvg.cloneNode(true);
+      clonedSvg.style.transform = '';
+      const viewBox = sourceSvg.viewBox && sourceSvg.viewBox.baseVal;
+      let natW = (viewBox && viewBox.width > 0) ? viewBox.width : sourceSvg.getBoundingClientRect().width;
+      let natH = (viewBox && viewBox.height > 0) ? viewBox.height : sourceSvg.getBoundingClientRect().height;
+      if (!natW || natW < 100) natW = 1380;
+      if (!natH || natH < 100) natH = 800;
+      clonedSvg.style.width = natW + 'px';
+      clonedSvg.style.height = natH + 'px';
+      clonedSvg.style.minWidth = natW + 'px';
+      viewport.innerHTML = '';
+      viewport.appendChild(clonedSvg);
+      modal.classList.add('active');
+      document.body.style.overflow = 'hidden';
+      const stageW = Math.max(300, stage.clientWidth - 80);
+      const stageH = Math.max(200, stage.clientHeight - 80);
+      const fitScale = Math.min(stageW / natW, stageH / natH, 1.0);
+      lightboxTransform = { scale: fitScale, x: 0, y: 0, fitScale: fitScale };
+      applyLightboxTransform();
+    }
+    function applyLightboxTransform() { const vp = document.getElementById('lightboxViewport'); if (vp) vp.style.transform = `translate(${lightboxTransform.x}px, ${lightboxTransform.y}px) scale(${lightboxTransform.scale})`; }
+    function zoomLightbox(factor) { lightboxTransform.scale *= factor; applyLightboxTransform(); }
+    function fitLightbox() { lightboxTransform.scale = lightboxTransform.fitScale; lightboxTransform.x = 0; lightboxTransform.y = 0; applyLightboxTransform(); }
+    function resetLightboxZoom() { lightboxTransform.scale = 1.0; lightboxTransform.x = 0; lightboxTransform.y = 0; applyLightboxTransform(); }
+    function closeLightbox() { document.getElementById('lightboxModal').classList.remove('active'); document.body.style.overflow = ''; currentLightboxId = null; }
+    function exportCurrentLightboxPng(action) { if (currentLightboxId) exportPng(currentLightboxId, action); }
+    function exportCurrentLightboxSvg() { if (currentLightboxId) exportSvg(currentLightboxId); }
+    const lbStage = document.getElementById('lightboxStage');
+    lbStage.onwheel = (e) => { e.preventDefault(); zoomLightbox(e.deltaY < 0 ? 1.12 : 0.88); };
+    lbStage.onmousedown = (e) => { if (e.target.closest('.lightbox-toolbar')) return; isLightboxDragging = true; lbStage.classList.add('grabbing'); lightboxStartX = e.clientX - lightboxTransform.x; lightboxStartY = e.clientY - lightboxTransform.y; };
+    window.addEventListener('mousemove', (e) => { if (!isLightboxDragging) return; lightboxTransform.x = e.clientX - lightboxStartX; lightboxTransform.y = e.clientY - lightboxStartY; applyLightboxTransform(); });
+    window.addEventListener('mouseup', () => { if (isLightboxDragging) { isLightboxDragging = false; lbStage.classList.remove('grabbing'); } });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+    lbStage.addEventListener('click', (e) => { if (e.target.id === 'lightboxStage') closeLightbox(); });
+    let toastTimer = null;
+    function showToast(msg) { const t = document.getElementById('toastNotification'); if (!t) return; t.innerText = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.classList.remove('show'); }, 2600); }
+    function openNativeFileDialog() {
+      window.viewer.openFile().then(document => {
+        if (document) updateMarkdown(document.content, document.filename);
+      }).catch(err => showToast('❌ ' + err.message));
+    }
+    window.viewer.onFileChanged(document => updateMarkdown(document.content, document.filename));
+    const findBar = document.getElementById('findBar');
+    const findInput = document.getElementById('findInput');
+    const findStatus = document.getElementById('findStatus');
+    const findState = { isOpen: false };
+    const findRequestTracker = createFindRequestTracker();
+    function openFindBar() {
+      findState.isOpen = true;
+      findBar.hidden = false;
+      findInput.focus();
+      findInput.select();
+    }
+    function closeFindBar() {
+      findState.isOpen = false;
+      findRequestTracker.invalidate();
+      findInput.value = '';
+      findStatus.textContent = '';
+      findBar.hidden = true;
+      window.viewer.stopFindInPage();
+    }
+    function requestFind(forward = true, findNext = true) {
+      const text = findInput.value.trim();
+      const requestGeneration = findRequestTracker.begin();
+      if (!text) {
+        findStatus.textContent = '';
+        window.viewer.stopFindInPage();
+        return;
+      }
+      window.viewer.findInPage({ text, forward, findNext }).then((requestId) => {
+        const earlyResult = findRequestTracker.setRequestId(requestGeneration, requestId);
+        if (earlyResult) updateFindStatus(earlyResult);
+      }).catch(err => showToast('❌ ' + err.message));
+    }
+    function restoreFindAfterRender() {
+      if (findState.isOpen && findInput.value.trim()) requestFind(true, true);
+    }
+    findInput.addEventListener('input', () => {
+      findStatus.textContent = findInput.value.trim() ? 'Press Enter to search' : '';
+    });
+    findInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); requestFind(!e.shiftKey, true); }
+      if (e.key === 'Escape') { e.preventDefault(); closeFindBar(); }
+    });
+    document.getElementById('findPreviousBtn').addEventListener('click', () => requestFind(false, false));
+    document.getElementById('findNextBtn').addEventListener('click', () => requestFind(true, false));
+    document.getElementById('findCloseBtn').addEventListener('click', closeFindBar);
+    function updateFindStatus(result) {
+      if (!findState.isOpen) return;
+      findStatus.textContent = result.matches ? `${result.activeMatchOrdinal}/${result.matches}` : 'No matches';
+    }
+    window.viewer.onFindResult((result) => {
+      const acceptedResult = findRequestTracker.receiveResult(result);
+      if (acceptedResult) updateFindStatus(acceptedResult);
+    });
+    function exportFullPagePdf() { window.viewer.print(); }
+    document.addEventListener('dragover', (e) => { e.preventDefault(); document.getElementById('emptyView').classList.add('dragover'); });
+    document.addEventListener('dragleave', (e) => { if (e.target.id === 'emptyView') document.getElementById('emptyView').classList.remove('dragover'); });
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      document.getElementById('emptyView').classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        const file = files[0];
+        if (file.name.match(/\.(md|markdown|mdx|txt)$/i)) { const reader = new FileReader(); reader.onload = (event) => { updateMarkdown(event.target.result, file.name); }; reader.readAsText(file); }
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && findState.isOpen) { e.preventDefault(); closeFindBar(); return; }
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key.toLowerCase()) {
+          case 'f': e.preventDefault(); openFindBar(); break;
+          case 'o': e.preventDefault(); openNativeFileDialog(); break;
+          case 'r': e.preventDefault(); window.viewer.reloadCurrentFile().then(document => { if (document) updateMarkdown(document.content, document.filename); }); break;
+          case '0': e.preventDefault(); Object.keys(transformMap).forEach(id => resetCard(id)); break;
+        }
+      }
+    });
+  </script>
+</body>
+</html>
